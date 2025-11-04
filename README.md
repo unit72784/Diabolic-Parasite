@@ -55,7 +55,6 @@ Diabolic Parasite takes keystroke reflection to the next level — transforming 
 ###  Example: Covert Keystroke Reflection Payload 
 
 ``` 
-DELAY 500
 GUI r
 DELAY 500
 EXFIL
