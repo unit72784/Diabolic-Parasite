@@ -1,6 +1,6 @@
 # Diabolic Parasite 
 
-## just like what happened with the [Diabolic Drive](https://www.crowdsupply.com/unit-72784/diabolic-drive) this repo will heavily be updated very soon and many features will be added to the firmware. Feel free to contact me with anything related to your Diabolic Parasite at discord `@3amoonee`
+## just like what happened with the [Diabolic Drive](https://www.crowdsupply.com/unit-72784/diabolic-drive) this repo will heavily be updated very soon and many features will be added to the firmware. Feel free to contact me with anything related to your Diabolic Parasite at Discord `@3amoonee`
 
 <h1>:bangbang: Diabolic Parasite default access point credentials are:
   <br>Wi-Fi SSID: Diabolic Parasite</br>
