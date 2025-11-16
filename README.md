@@ -197,14 +197,14 @@ DELAY 1000
 STRING notepad
 DELAY 500
 ENTER
-DELAY 1000
+DELAY 2000
 STRING This is normal typing speed from the Diabolic Parasite
 ENTER
 DELAY 1500
 
 REM === Random Cadence ON (Default: 100 ms) ===
 RANDOMCADENCE
-STRING This text is typed using the DEFAULT Random Cadence (1–100 ms per character)
+STRING This text is typed using the DEFAULT Random Cadence (1-100 ms per character)
 ENTER
 DELAY 1500
 
@@ -218,6 +218,7 @@ REM === Random Cadence OFF (Return to Fast Typing) ===
 RANDOMCADENCE OFF
 STRING Random Cadence is now OFF — typing speed is back to full speed
 ENTER
+
 ```
 
 ## LangIgnore Mode
@@ -242,20 +243,21 @@ Choose **any non-English keyboard layout**, then run the following payload to se
 
 ### Example: LangIgnore Demonstration Payload
 
-```ducky
+```
 REM === Normal Typing (Affected by Keyboard Layout) ===
 GUI r
 DELAY 800
+LANGIGNORE ON
 STRING notepad
 DELAY 500
 ENTER
-DELAY 800
+LANGIGNORE OFF
+DELAY 2000
 STRING Normal typing depends on your current keyboard layout
 ENTER
 DELAY 1500
-
-REM === LangIgnore ON (ALT + Numpad Layout-Independent Typing) ===
 LANGIGNORE ON
+REM === LangIgnore ON (ALT + Numpad Layout-Independent Typing) ===
 STRING This line is typed with LANGIGNORE ON using ALT+Numpad injection
 ENTER
 STRING Characters will appear correctly even on non-English layouts
