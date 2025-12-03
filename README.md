@@ -1,7 +1,7 @@
 # Diabolic Parasite 
 
 ## just like what happened with the [Diabolic Drive](https://www.crowdsupply.com/unit-72784/diabolic-drive) this repo will heavily be updated very soon and many features will be added to the firmware. Feel free to contact me with anything related to your Diabolic Parasite at Discord `@3amoonee`
-
+# [Firmware Update and Installation Instructions are here.](https://github.com/unit72784/Diabolic-Parasite/blob/main/Firmware%20Update%20and%20Installation%20Instructions.md)
 <h1>:bangbang: Diabolic Parasite default access point credentials are:
   <br>Wi-Fi SSID: Diabolic Parasite</br>
   Password: diabolic_parasite 
@@ -15,6 +15,7 @@
   * [Tweaks](#tweaks)
   * [Special Features](#special-features)
 * [Using Your Diabolic Parasite as a Diabolic Plug](#using-your-diabolic-parasite-as-a-diabolic-plug)
+* [Self-Destruct Mode](#self-destruct-mode)
 * [Programming Options](#programming-options)
 
 
@@ -296,7 +297,35 @@ Run it **once** on a test machine via the payload editor, and verify in the log 
 
 This mode turns the Parasite into a truly **plug-and-play covert injector**, ready to strike at the perfect moment.
 
+## Self-Destruct Mode
+
+
+**Self-Destruct (Panic Wipe) Mode**
+
+Diabolic Parasite includes a built-in *self-destruct* mechanism designed to permanently wipe your payloads and logs if things go sideways.
+
+When self-destruct is triggered, the device:
+
+1. **Performs a *secure* wipe of the storage partition**
+   Instead of calling the filesystem’s normal `format()` (which only resets filesystem metadata and can leave old data recoverable with raw flash forensics), the Parasite:
+
+   * Unmounts LittleFS
+   * Locates the data partition that holds scripts/logs
+   * Erases the **entire partition at flash level** (sector by sector)
+   * Recreates a fresh, empty filesystem on top of the erased region
+
+   This destroys all stored Duckyscripts, logs, and other user data in that partition, making recovery from a simple flash dump or off-the-shelf forensic tools extremely unlikely.
+
+2. **Falls back to safe passthrough mode**
+   After wiping, the device switches to a minimal “dumb passthrough” behavior:
+
+   * The attached keyboard behaves like a normal keyboard.
+   * No further logging, injection, or scripting features are available.
+   * The ESP32 enters light-sleep and only wakes to maintain basic passthrough, leaving as little footprint as possible.
+
+> ⚠️ **Note:** This is a best-effort software wipe at the flash-partition level. It is designed to defeat typical forensic techniques (e.g., dumping the SPI flash and carving files), but it cannot guarantee protection against extremely high-end, invasive chip-level analysis.
+
+**To recover from Self-Destruct Mode, please refer to the [detailed instructions provided here](https://github.com/unit72784/Diabolic-Parasite/blob/main/Firmware%20Update%20and%20Installation%20Instructions.md).**
+
 ## Programming Options
-
-This section will be updated soon. For now, please continue using the preloaded firmware.
-
+## [Firmware Update and Installation Instructions are here.](https://github.com/unit72784/Diabolic-Parasite/blob/main/Firmware%20Update%20and%20Installation%20Instructions.md)
