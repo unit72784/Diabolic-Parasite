@@ -3,6 +3,7 @@
 ## just like what happened with the [Diabolic Drive](https://www.crowdsupply.com/unit-72784/diabolic-drive) this repo will heavily be updated very soon and many features will be added to the firmware. Feel free to contact me with anything related to your Diabolic Parasite at Discord `@3amoonee`
 # ⚠️[Full documentation for the Diabolic Shell is available here.](https://github.com/unit72784/Diabolic-Parasite/blob/main/Diabolic-Shell-Documentation.md)⚠️
 # [Firmware Update and Installation Instructions are here.](https://github.com/unit72784/Diabolic-Parasite/blob/main/Firmware%20Update%20and%20Installation%20Instructions.md)
+# ⚠️[3D-printed enclosure files are available here, made by Ser0ka88](https://github.com/unit72784/Diabolic-Parasite/tree/main/Diabolic%20Parasite%20custom%203D%20printed%20enclosure%20files)⚠️
 <h1>:bangbang: Diabolic Parasite default access point credentials are:
   <br>Wi-Fi SSID: Diabolic Parasite</br>
   Password: diabolic_parasite 
